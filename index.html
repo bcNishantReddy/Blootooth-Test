@@ -1,38 +1,115 @@
-// Connect/disconnect handlers
-tbody.addEventListener('click', async e => {
-  const btn = e.target.closest('button');
-  if (!btn) return;
-  const id = btn.dataset.id;
-  const action = btn.dataset.action;
-  const device = knownDevices.find(d => d.id === id);
-  if (!device) return;
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Web Bluetooth Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background:#f6f8fb; color:#111; padding:2rem; }
+    .card { background:#fff; padding:1.25rem; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.08); max-width:700px; margin:auto; }
+    h1 { font-size:1.25rem; margin-top:0; }
+    button { padding:.6rem 1rem; border:0; border-radius:8px; background:#0366d6; color:white; cursor:pointer; margin-right:.5rem; }
+    button.secondary { background:#eef2ff; color:#0366d6; }
+    table { width:100%; border-collapse:collapse; margin-top:1rem; }
+    th,td { text-align:left; padding:.5rem; border-bottom:1px solid #e2e8f0; }
+    th { background:#f1f5f9; font-weight:600; }
+    pre { background:#0b1220; color:#e6f0ff; padding:.75rem; border-radius:8px; font-size:.9rem; max-height:240px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔵 Web Bluetooth Device Demo</h1>
+    <p style="font-size:.9rem;color:#555;">Works on HTTPS or localhost (Chromium browsers). You can pick any nearby BLE device.</p>
 
-  if (action === 'connect') {
-    try {
-      log(`Connecting to ${device.name || id}...`);
-      device.addEventListener('gattserverdisconnected', () => {
-        log(`${device.name || id} disconnected`);
+    <button id="addDeviceBtn">Add / Connect Device</button>
+    <button id="readBatteryBtn" class="secondary">Read Battery Level</button>
+
+    <table id="deviceTable">
+      <thead>
+        <tr><th>Name</th><th>ID</th><th>Connected</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h2 style="font-size:1rem;margin-top:1rem;">Log</h2>
+    <pre id="log"></pre>
+  </div>
+
+  <script>
+    const $ = sel => document.querySelector(sel);
+    const logEl = $('#log');
+    const tbody = $('#deviceTable tbody');
+
+    function log(msg) {
+      const t = new Date().toLocaleTimeString();
+      logEl.textContent = `${t} — ${msg}\n` + logEl.textContent;
+    }
+
+    let device = null;
+    let server = null;
+
+    function renderTable() {
+      tbody.innerHTML = '';
+      if (!device) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#666;">No device connected.</td></tr>';
+        return;
+      }
+      const connected = server && server.connected ? '✅' : '❌';
+      tbody.innerHTML = `<tr><td>${device.name || '(no name)'}</td><td>${device.id}</td><td>${connected}</td></tr>`;
+    }
+
+    // Add/connect to a new device
+    $('#addDeviceBtn').addEventListener('click', async () => {
+      try {
+        log('Requesting Bluetooth device...');
+        device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['battery_service']
+        });
+        log(`Selected device: ${device.name || '(no name)'} (${device.id})`);
+
+        device.addEventListener('gattserverdisconnected', () => {
+          log(`${device.name || 'Device'} disconnected`);
+          renderTable();
+        });
+
+        log('Connecting...');
+        server = await device.gatt.connect();
+        log(`Connected to ${device.name || 'device'}`);
         renderTable();
-      });
-      await device.gatt.connect();
-      log(`Connected to ${device.name || id}`);
-    } catch (err) {
-      log(`Connect failed: ${err.message}`);
-    }
-  } else if (action === 'disconnect') {
-    try {
-      device.gatt.disconnect();
-      log(`Disconnected from ${device.name || id}`);
-    } catch (err) {
-      log(`Disconnect failed: ${err.message}`);
-    }
-  }
-  renderTable();
-});
 
-// Initial check
-if (!navigator.bluetooth) {
-  log('Web Bluetooth API not supported in this browser.');
-} else {
-  refreshDevices();
-}
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    });
+
+    // Read battery level if available
+    $('#readBatteryBtn').addEventListener('click', async () => {
+      if (!device || !server) {
+        log('No connected device.');
+        return;
+      }
+
+      try {
+        log('Checking for Battery Service...');
+        const service = await server.getPrimaryService('battery_service');
+        const characteristic = await service.getCharacteristic('battery_level');
+        const value = await characteristic.readValue();
+        const batteryLevel = value.getUint8(0);
+        log(`Battery Level: ${batteryLevel}%`);
+      } catch (err) {
+        log(`Battery service not available: ${err.message}`);
+      }
+    });
+
+    // Initial check
+    if (!navigator.bluetooth) {
+      log('❌ Web Bluetooth API not supported in this browser.');
+    } else {
+      log('✅ Web Bluetooth API supported. Click "Add / Connect Device" to begin.');
+    }
+
+    renderTable();
+  </script>
+</body>
+</html>
